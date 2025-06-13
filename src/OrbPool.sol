@@ -3,7 +3,12 @@ pragma solidity ^0.8.24;
 
 import {IOrbPool} from "./Interface/IOrbPool.sol";
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol"; 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {RootLib} from "./RootLib.sol";
+
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract OrbPool is IOrbPool, ERC20{
 
@@ -12,11 +17,18 @@ contract OrbPool is IOrbPool, ERC20{
     mapping(address => bool) public tokenAddressListed;
     IERC20[] tokens;
 
-    //swap function params
+    //Super-Elliptical Orb Curve params
+    int C = 3.141592653589793238 * 10 ** 18; // VasiliConstant
+    int L; // L * VasiliConstant = constant K
+    int uc = 1.28599569685 * 10 ** 18; 
+    int flipped_uc = 0.77639320225 * 10 ** 18; // 1 / uc
+
+    int constant ln2 = 0.6931 * 10 ** 18; // ln(2)
+    //WAD = 1e18
 
 
-    constructor(address owner) ERC20("ORB LP", "ORBLP") {
-        owner = owner;
+    constructor(address _owner) ERC20("ORB LP", "ORBLP") {
+        owner = _owner;
     }
 
     function addToken(address token) external {
@@ -60,16 +72,69 @@ contract OrbPool is IOrbPool, ERC20{
         require(tokenAddressListed[tokenOut], "Token not listed");
 
         //TODO get price of deposit token in LP token
-        amountOut = 0;
+        uint amountOut = 0;
         IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
         IERC20(tokenOut).transfer(msg.sender, amountOut);
 
-        //TODO check slippage.
+        //check slippage.
         if(amountOut < minimumAmountOut) {
             revert("Slippage is too high.");
         }
 
+        //TODO add fee handling here.
+        L = L + int(amountIn) - int(amountOut); //update total tokens in the pool
+
     }
 
-    
+    function updateVasiliConstant(int _c) external {
+        require(msg.sender == owner, "Only owner can update C");
+        C = _c;
+        uc = calculateVasiliVariant(C);
+    }
+
+    function updateFlippedUc(int _flipped_uc) external {
+        require(msg.sender == owner, "Only owner can update flipped_uc");
+        flipped_uc = _flipped_uc;
+    }
+
+    function getln(int x) public pure returns (int) {
+        return FixedPointMathLib.lnWad(int(x));
+    }
+
+    function calculateVasiliVariant(int x) internal pure returns (int) {
+       //u(x) = ln(2) / ln(x/ x - 1)
+       int u = ln2;
+       u = u / (getln(x) - getln(x - 1));
+
+       return u;
+    }
+
+    function calculateInvariant(int x) internal view returns (int) {
+        int chunk = (x / C * L) - 1;
+
+        if(chunk < 0) {
+            chunk = chunk * -1;
+        }
+
+        int box = chunk ** uc;
+
+        int vr = getVasiliRoot(1 - box);
+        
+        int I = -1 * C * (vr - 1) * L;
+        return I;
+    }
+
+    function getVasiliRoot(int x) internal view returns (int) {
+        return FixedPointMathLib.powWad(x, flipped_uc);
+    }
+
+    function getExecutionPrice(int amount) internal view returns (int) {
+        int d = amount + L;
+        int q = L;
+
+        
+    }
+
+
+
 }
