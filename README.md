@@ -1,3 +1,11 @@
+# Orbswap
+
+Super-elliptical Orb shaped AMM curve allows for n number of tokens in a single pool, swapped effeciently. 
+
+## References
+Based on work by Vasili and inspired by research from Paradigm.
+
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
