@@ -29,6 +29,6 @@ contract OrbTest is Test {
     }
 
     function test_emergencyAdminReset() public {
-        orbPool.emergencyAdminReset(address(0), 100, address(0));
+        orbPool.emergencyAdminResetL(address(0), 100, address(0));
     }
 }

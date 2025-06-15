@@ -10,8 +10,6 @@ import {IOrbPool} from "./Interface/IOrbPool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol"; 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {RootLib} from "./RootLib.sol";
-
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract OrbPool is IOrbPool, ERC20{
@@ -19,13 +17,13 @@ contract OrbPool is IOrbPool, ERC20{
     address public owner;
 
     mapping(address => bool) public tokenAddressListed;
-    IERC20[] tokens;
+    address[] public tokens;
 
     //Super-Elliptical Orb Curve params
-    int public C = 3.141592653589793238 * 10 ** 18; // VasilyConstant
-    int public L = 0; // L * VasilyConstant = constant K
-    int public uc = 1.28599569685 * 10 ** 18;
-    int public flipped_uc = 0.77639320225 * 10 ** 18; // 1 / uc
+    int public C = 3.414 * 10 ** 18; // (2 + sqrt(2))
+    int public L = 0; // L * C = constant K
+    int public uc = 2;
+    int public flipped_uc_18 = 0.5 * 10 ** 18; // 1 / uc
 
     int constant public ln2 = 0.6931 * 10 ** 18; // ln(2)
     //WAD = 1e18
@@ -37,12 +35,14 @@ contract OrbPool is IOrbPool, ERC20{
     function addToken(address token) external {
         require(msg.sender == owner, "Only owner can add tokens");
         tokenAddressListed[token] = true;
-        tokens.push(IERC20(token));
+        tokens.push(token);
     }
 
-    function removeToken(address token) external {
+    function removeToken(address token, uint index) external {
         require(msg.sender == owner, "Only owner can remove tokens");
         tokenAddressListed[token] = false;
+        tokens[index] = tokens[tokens.length - 1];
+        tokens.pop();
     }
 
     // =============== Core functions ===============
@@ -113,11 +113,6 @@ contract OrbPool is IOrbPool, ERC20{
         uc = calculateVasilyVariant(C);
     }
 
-    function updateFlippedUc(int _flipped_uc) external {
-        require(msg.sender == owner, "Only owner can update flipped_uc");
-        flipped_uc = _flipped_uc;
-    }
-
     function getln(int x) public pure returns (int) {
         return FixedPointMathLib.lnWad(int(x));
     }
@@ -146,22 +141,29 @@ contract OrbPool is IOrbPool, ERC20{
     }
 
     function getVasilyRoot(int x) internal view returns (int) {
-        return FixedPointMathLib.powWad(x, flipped_uc);
+        return FixedPointMathLib.powWad(x, flipped_uc_18 / 10 ** 18);
     }
 
-    function getExecutionPrice(int amount) internal view returns (int) {
-        int d = amount + L;
-        int q = L;
-    }
-
+    //@dev swaps tokens in the pool.
+    //@param tokenIn the token to swap in. (x)
+    //@param tokenOut the token to swap out.
+    //@param amountIn the amount of tokens to swap in.
+    //@param minimumAmountOut the minimum amount of tokens to swap out.
+    //@return the amount of tokens swapped out.
     function swap(address tokenIn, address tokenOut, int amountIn, int minimumAmountOut) external returns (int) {
         require(tokenAddressListed[tokenIn], "Token not listed");
         require(tokenAddressListed[tokenOut], "Token not listed");
 
-        //TODO get price of deposit token in LP token
         int amountOut = 0;
-        blah blah blah
+        //get execution price
+        //TODO: may be vulnerable to inflation attacks.
+        int q_x = int(IERC20(tokenIn).balanceOf(address(this))); //x before swap.
+
+        int d_x = amountIn + q_x;        
         
+        //execution price of x in y
+        int execution_price = (calculateInvariant(d_x) - calculateInvariant(q_x)) / (d_x - q_x);
+        amountOut = amountIn * execution_price;
         
         IERC20(tokenIn).transferFrom(msg.sender, address(this), uint(amountIn));
         
