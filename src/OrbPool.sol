@@ -18,16 +18,15 @@ contract OrbPool is IOrbPool, ERC20{
     IERC20[] tokens;
 
     //Super-Elliptical Orb Curve params
-    int C = 3.141592653589793238 * 10 ** 18; // VasiliConstant
-    int L; // L * VasiliConstant = constant K
+    int C = 3.141592653589793238 * 10 ** 18; // VasilyConstant
+    int L = 0; // L * VasilyConstant = constant K
     int uc = 1.28599569685 * 10 ** 18; 
     int flipped_uc = 0.77639320225 * 10 ** 18; // 1 / uc
 
     int constant ln2 = 0.6931 * 10 ** 18; // ln(2)
     //WAD = 1e18
 
-
-    constructor(address _owner) ERC20("ORB LP", "ORBLP") {
+    constructor(address _owner) ERC20("ORB LP Shares", "ORBLP") {
         owner = _owner;
     }
 
@@ -42,29 +41,113 @@ contract OrbPool is IOrbPool, ERC20{
         tokenAddressListed[token] = false;
     }
 
-    //Core functions
+    // =============== Core functions ===============
     //Deposit LP
     //Withdraw LP
     //Swap
 
     //batch deposit
     //batch withdraw
+    //@dev deposits tokens into the pool.
+    //@param token1 the first token to deposit.
+    //@param token2 the second token to deposit.
+    //@param amount1 the amount of the first token to deposit.
+    //@param amount2 the amount of the second token to deposit.
+    function deposit(address token1, address token2, int amount1, int amount2) external {
+        require(tokenAddressListed[token1], "Token not listed");
+        require(tokenAddressListed[token2], "Token not listed");
+        require(amount1 > 0 && amount2 > 0, "Invalid amount, cannot be 0.");
 
-    function deposit(address token, uint amount) external {
-        require(tokenAddressListed[token], "Token not listed");
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        //get the current ratio of the tokens in the pool.
+        //TODO: this will always round up, and maybe it should round down or be handled another way. Fix this Later.
+        int w1 =  FixedPointMathLib.sDivWad(int(IERC20(token1).balanceOf(address(this))), int(IERC20(token2).balanceOf(address(this))));
+        int w2 =  10**18 - w1;
+
+        int inputRatio = FixedPointMathLib.sDivWad(amount1, amount2); // 10^15 
+
+        //check ratios are within .1% of each other.
+        //TODO: enforce more rules here related balancing and rounding up in favor of the pool.
+        if(inputRatio > w1) {
+            require(inputRatio - w1 < 10**15, "Invalid ratio, ratio of deposit tokens must match the pool.");
+        }else{
+            //input ratio is smaller.
+            require(w1 - inputRatio < 10**15, "Invalid ratio, ratio of deposit tokens must match the pool.");
+        }
+
+        //transfer tokens to the pool.
+        IERC20(token1).transferFrom(msg.sender, address(this), uint(amount1));
+        IERC20(token2).transferFrom(msg.sender, address(this), uint(amount2));
+
+        //use the actual balances to compute new L.
+        L = L + int(IERC20(token1).balanceOf(address(this))) + int(IERC20(token2).balanceOf(address(this)));
         
-        //TODO get price of deposit token in LP token
-        _mint(msg.sender, amount); // mint LP tokens to the user
+        _mint(msg.sender, uint(w2 * amount1 + w1 * amount2)); // mint LP tokens to the user proportional to the inverse of their weight in the pool.
     }
 
+    //@dev withdraws tokens from the pool, 
+    //@notice: burns all the shares so you better send the addresses of all the available tokens or you will lose money.
+    //@param sharesToBurn the number of shares to burn.
+    //@param tokens the tokens to withdraw.
+    function withdraw(uint sharesToBurn, address[] memory tokensToWithdraw) external {
 
-    function withdraw(address token, uint amount) external {
-        require(tokenAddressListed[token], "Token not listed");
+        int weight = FixedPointMathLib.sDivWad(int(sharesToBurn), int(totalSupply()));
+        _burn(msg.sender, sharesToBurn); // burn LP tokens from the user
 
-        //TODO get price of deposit token in LP token
-        _burn(msg.sender, amount); // burn LP tokens from the user
-        IERC20(token).transfer(msg.sender, amount);
+        //TODO is this super inefficient. This can be fixed by letting a use choose less tokens
+        for(uint i = 0; i < tokensToWithdraw.length;) {
+            require(tokenAddressListed[tokensToWithdraw[i]], "Token not listed.");
+            int amount = weight * int(IERC20(tokensToWithdraw[i]).balanceOf(address(this)));
+            IERC20(tokensToWithdraw[i]).transfer(msg.sender, uint(amount));
+
+            ++i;
+        }
+    }
+
+    function updateVasilyConstant(int _c) external {
+        require(msg.sender == owner, "Only owner can update C");
+        C = _c;
+        uc = calculateVasilyVariant(C);
+    }
+
+    function updateFlippedUc(int _flipped_uc) external {
+        require(msg.sender == owner, "Only owner can update flipped_uc");
+        flipped_uc = _flipped_uc;
+    }
+
+    function getln(int x) public pure returns (int) {
+        return FixedPointMathLib.lnWad(int(x));
+    }
+
+    function calculateVasilyVariant(int x) internal pure returns (int) {
+       //u(x) = ln(2) / ln(x/ x - 1)
+       int u = ln2;
+       u = u / (getln(x) - getln(x - 1));
+
+       return u;
+    }
+
+    function calculateInvariant(int x) internal view returns (int) {
+        int chunk = (x / C * L) - 1;
+
+        if(chunk < 0) {
+            chunk = chunk * -1;
+        }
+
+        int box = FixedPointMathLib.powWad(chunk, uc);
+
+        int vr = getVasilyRoot(1 - box);
+        
+        int I = -1 * C * (vr - 1) * L;
+        return I;
+    }
+
+    function getVasilyRoot(int x) internal view returns (int) {
+        return FixedPointMathLib.powWad(x, flipped_uc);
+    }
+
+    function getExecutionPrice(int amount) internal view returns (int) {
+        int d = amount + L;
+        int q = L;
     }
 
     function swap(address tokenIn, address tokenOut, uint amountIn, uint minimumAmountOut) external {
@@ -81,60 +164,10 @@ contract OrbPool is IOrbPool, ERC20{
             revert("Slippage is too high.");
         }
 
-        //TODO add fee handling here.
+        //TODO add fee handling here. V0.1 will have fees.
         L = L + int(amountIn) - int(amountOut); //update total tokens in the pool
 
+        return amountOut;
     }
-
-    function updateVasiliConstant(int _c) external {
-        require(msg.sender == owner, "Only owner can update C");
-        C = _c;
-        uc = calculateVasiliVariant(C);
-    }
-
-    function updateFlippedUc(int _flipped_uc) external {
-        require(msg.sender == owner, "Only owner can update flipped_uc");
-        flipped_uc = _flipped_uc;
-    }
-
-    function getln(int x) public pure returns (int) {
-        return FixedPointMathLib.lnWad(int(x));
-    }
-
-    function calculateVasiliVariant(int x) internal pure returns (int) {
-       //u(x) = ln(2) / ln(x/ x - 1)
-       int u = ln2;
-       u = u / (getln(x) - getln(x - 1));
-
-       return u;
-    }
-
-    function calculateInvariant(int x) internal view returns (int) {
-        int chunk = (x / C * L) - 1;
-
-        if(chunk < 0) {
-            chunk = chunk * -1;
-        }
-
-        int box = chunk ** uc;
-
-        int vr = getVasiliRoot(1 - box);
-        
-        int I = -1 * C * (vr - 1) * L;
-        return I;
-    }
-
-    function getVasiliRoot(int x) internal view returns (int) {
-        return FixedPointMathLib.powWad(x, flipped_uc);
-    }
-
-    function getExecutionPrice(int amount) internal view returns (int) {
-        int d = amount + L;
-        int q = L;
-
-        
-    }
-
-
 
 }
