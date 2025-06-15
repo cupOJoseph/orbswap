@@ -2,6 +2,8 @@
 
 Super-elliptical Orb shaped AMM curve allows for n number of tokens in a single pool, swapped effeciently. 
 
+<img src="https://github.com/user-attachments/assets/e5440a58-b85d-4b1a-9c7d-bd287e405d67" alt="orb swap logo" width="200" height="auto">
+
 ## Note
 These smart contracts and testing suite are being provided as is. No guarantee, representation or warranty is being made, express or implied, as to the safety or correctness of anything provided herein or through related user interfaces. This repository and related code have not been audited and as such there can be no assurance anything will work as intended, and users may experience delays, failures, errors, omissions, loss of transmitted information or loss of funds. The creators are not liable for any of the foregoing. Users should proceed with extreme caution and use at their own risk.
 
