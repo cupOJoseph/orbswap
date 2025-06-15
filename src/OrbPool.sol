@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/*
+These smart contracts and testing suite are being provided as is. No guarantee, representation or warranty is being made, express or implied, as to the safety or correctness of anything provided herein or through related user interfaces. This repository and related code have not been audited and as such there can be no assurance anything will work as intended, and users may experience delays, failures, errors, omissions, loss of transmitted information or loss of funds. The creators are not liable for any of the foregoing. Users should proceed with caution and use at their own risk.
+*/
+
 import {IOrbPool} from "./Interface/IOrbPool.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol"; 
@@ -18,12 +22,12 @@ contract OrbPool is IOrbPool, ERC20{
     IERC20[] tokens;
 
     //Super-Elliptical Orb Curve params
-    int C = 3.141592653589793238 * 10 ** 18; // VasilyConstant
-    int L = 0; // L * VasilyConstant = constant K
-    int uc = 1.28599569685 * 10 ** 18; 
-    int flipped_uc = 0.77639320225 * 10 ** 18; // 1 / uc
+    int public C = 3.141592653589793238 * 10 ** 18; // VasilyConstant
+    int public L = 0; // L * VasilyConstant = constant K
+    int public uc = 1.28599569685 * 10 ** 18;
+    int public flipped_uc = 0.77639320225 * 10 ** 18; // 1 / uc
 
-    int constant ln2 = 0.6931 * 10 ** 18; // ln(2)
+    int constant public ln2 = 0.6931 * 10 ** 18; // ln(2)
     //WAD = 1e18
 
     constructor(address _owner) ERC20("ORB LP Shares", "ORBLP") {
@@ -150,14 +154,17 @@ contract OrbPool is IOrbPool, ERC20{
         int q = L;
     }
 
-    function swap(address tokenIn, address tokenOut, uint amountIn, uint minimumAmountOut) external {
+    function swap(address tokenIn, address tokenOut, int amountIn, int minimumAmountOut) external returns (int) {
         require(tokenAddressListed[tokenIn], "Token not listed");
         require(tokenAddressListed[tokenOut], "Token not listed");
 
         //TODO get price of deposit token in LP token
-        uint amountOut = 0;
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
-        IERC20(tokenOut).transfer(msg.sender, amountOut);
+        int amountOut = 0;
+        blah blah blah
+        
+        
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), uint(amountIn));
+        
 
         //check slippage.
         if(amountOut < minimumAmountOut) {
@@ -165,9 +172,17 @@ contract OrbPool is IOrbPool, ERC20{
         }
 
         //TODO add fee handling here. V0.1 will have fees.
-        L = L + int(amountIn) - int(amountOut); //update total tokens in the pool
+        L = L + amountIn - amountOut; //update total tokens in the pool
+        IERC20(tokenOut).transfer(msg.sender, uint(amountOut));
 
         return amountOut;
+    }
+
+    //This emergency function will be removed in v1.
+    function emergencyAdminResetL(address token, uint amount, address _to) external {
+        require(msg.sender == owner, "Only owner can reset");
+        IERC20(token).transfer(_to, amount);
+        L = 0;
     }
 
 }
