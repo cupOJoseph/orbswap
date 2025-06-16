@@ -19,6 +19,8 @@ contract OrbPool is IOrbPool, ERC20{
     mapping(address => bool) public tokenAddressListed;
     address[] public tokens;
 
+    bool public poolInitiated = false;
+
     //Super-Elliptical Orb Curve params
     int public C = 3.414 * 10 ** 18; // (2 + sqrt(2))
     int public L = 0; // L * C = constant K
@@ -29,13 +31,36 @@ contract OrbPool is IOrbPool, ERC20{
     //WAD = 1e18
 
     constructor(address _owner) ERC20("ORB LP Shares", "ORBLP") {
-        owner = _owner;
+        owner = _owner; 
     }
 
-    function addToken(address token) external {
-        require(msg.sender == owner, "Only owner can add tokens");
+    function addToken(address token, int _amount) external {
+        require(msg.sender == owner, "Only owner can add new tokens");
         tokenAddressListed[token] = true;
         tokens.push(token);
+        IERC20(token).transferFrom(msg.sender, address(this), uint(_amount));
+
+        if(L ==0){
+            L = _amount;
+        }
+    }
+
+    function initiatePool(address[] calldata depositTokens, int _L) external {
+        require(msg.sender == owner, "Only owner can initiate pool.");
+        require(L == 0, "Pool already initiated.");
+        require(_L > 0, "L must be greater than 0.");
+
+        L = _L;
+
+        for(uint i = 0; i < depositTokens.length;) {
+            IERC20(depositTokens[i]).transferFrom(msg.sender, address(this), uint(_L));
+            tokenAddressListed[depositTokens[i]] = true;
+            tokens.push(depositTokens[i]);
+            ++i;
+        }
+        
+
+        poolInitiated = true;
     }
 
     function removeToken(address token, uint index) external {
@@ -57,20 +82,48 @@ contract OrbPool is IOrbPool, ERC20{
     //@param token2 the second token to deposit.
     //@param amount1 the amount of the first token to deposit.
     //@param amount2 the amount of the second token to deposit.
-    function deposit(address token1, address token2, int amount1, int amount2) external {
-        require(tokenAddressListed[token1], "Token not listed");
-        require(tokenAddressListed[token2], "Token not listed");
-        require(amount1 > 0 && amount2 > 0, "Invalid amount, cannot be 0.");
+    function deposit(address[] calldata depositTokens, int[] calldata amounts) external {
+        require(depositTokens.length == amounts.length, "Invalid input");
+
+        uint length = depositTokens.length;
+        int[] memory weights = new int[](length); // each weight it that token's % of the pool. larger = less valuable. TODO: make this less linear.
+
+        int totalAddedTokens = 0;
+
+
+        for(uint i = 0; i < length;) {
+            totalAddedTokens += amounts[i];
+            require(tokenAddressListed[depositTokens[i]], "Token not listed");
+            require(amounts[i] > 0, "Invalid amount, cannot be 0.");
+
+            ++i;
+        }
+
+        uint L_delta = uint(totalAddedTokens)/length;
+
+        for(uint i = 0; i < length;) {
+            uint optimizedAmount = uint(L * amounts[i]) / IERC20(depositTokens[i]).balanceOf(address(this));
+            //optimized amount must be within 0.1% of L_delta
+            if(optimizedAmount > L_delta * 1001 / 1000 || optimizedAmount < L_delta * 999 / 1000) {
+                revert("Invalid amount, must be within 0.1% of L_delta");
+            }
+            //weight is stored as a number between 0 and 1 then times 10^18.
+
+            //transfer tokens to the pool.
+            IERC20(depositTokens[i]).transferFrom(msg.sender, address(this), uint(amounts[i]));
+
+            ++i;
+        }
 
         //get the current ratio of the tokens in the pool.
         //TODO: this will always round up, and maybe it should round down or be handled another way. Fix this Later.
-        int w1 =  FixedPointMathLib.sDivWad(int(IERC20(token1).balanceOf(address(this))), int(IERC20(token2).balanceOf(address(this))));
+        int w1 =  FixedPointMathLib.sDivWad(int(IERC20(depositTokens[0]).balanceOf(address(this))), int(IERC20(depositTokens[1]).balanceOf(address(this))));
         int w2 =  10**18 - w1;
 
-        int inputRatio = FixedPointMathLib.sDivWad(amount1, amount2); // 10^15 
+        int inputRatio = FixedPointMathLib.sDivWad(amounts[0], amounts[1]); // 10^15 
 
         //check ratios are within .1% of each other.
-        //TODO: enforce more rules here related balancing and rounding up in favor of the pool.
+         
         if(inputRatio > w1) {
             require(inputRatio - w1 < 10**15, "Invalid ratio, ratio of deposit tokens must match the pool.");
         }else{
@@ -78,14 +131,10 @@ contract OrbPool is IOrbPool, ERC20{
             require(w1 - inputRatio < 10**15, "Invalid ratio, ratio of deposit tokens must match the pool.");
         }
 
-        //transfer tokens to the pool.
-        IERC20(token1).transferFrom(msg.sender, address(this), uint(amount1));
-        IERC20(token2).transferFrom(msg.sender, address(this), uint(amount2));
-
         //use the actual balances to compute new L.
-        L = L + int(IERC20(token1).balanceOf(address(this))) + int(IERC20(token2).balanceOf(address(this)));
-        
-        _mint(msg.sender, uint(w2 * amount1 + w1 * amount2)); // mint LP tokens to the user proportional to the inverse of their weight in the pool.
+        L = L + int(L_delta);
+        require(L > 0, "L cannot be 0 or negative. Sanity check.");
+        _mint(msg.sender, L_delta); //this surprisingly works because we enforce that the ratio of the tokens is the same as the pool.
     }
 
     //@dev withdraws tokens from the pool, 
@@ -97,7 +146,9 @@ contract OrbPool is IOrbPool, ERC20{
         int weight = FixedPointMathLib.sDivWad(int(sharesToBurn), int(totalSupply()));
         _burn(msg.sender, sharesToBurn); // burn LP tokens from the user
 
-        //TODO is this super inefficient. This can be fixed by letting a use choose less tokens
+        //TODO is this super inefficient. This can be fixed by letting a user choose less tokens.
+        // We could calculate the weight of each token in the pool to get its value, 
+        // decide the value of shares, and then withdraw that value in any token combo.
         for(uint i = 0; i < tokensToWithdraw.length;) {
             require(tokenAddressListed[tokensToWithdraw[i]], "Token not listed.");
             int amount = weight * int(IERC20(tokensToWithdraw[i]).balanceOf(address(this)));
@@ -153,6 +204,10 @@ contract OrbPool is IOrbPool, ERC20{
     function swap(address tokenIn, address tokenOut, int amountIn, int minimumAmountOut) external returns (int) {
         require(tokenAddressListed[tokenIn], "Token not listed");
         require(tokenAddressListed[tokenOut], "Token not listed");
+
+        int l_start = L;
+
+        //TODO: verify L * C is not too big, and exceeds the curve.
 
         int amountOut = 0;
         //get execution price
