@@ -20,7 +20,7 @@ contract OrbPool is IOrbPool, ERC20{
     address[] public tokens;
 
     //Super-Elliptical Orb Curve params
-    int public C = 3.414 * 10 ** 18; // (2 + sqrt(2))
+    int public C = 3.414 * 10 ** 18; // (2 + sqrt(2)) todo: split C into alpha and beta for asymmetric liquidity
     int public L = 0; // L * C = constant K
     int public uc = 2;
     int public flipped_uc_18 = 0.5 * 10 ** 18; // 1 / uc
