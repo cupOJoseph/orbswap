@@ -158,10 +158,11 @@ contract OrbPool is IOrbPool, ERC20{
         }
     }
 
-    function updateVasilyConstant(int _c) external {
+    function updateVasilyConstant(int _c, int _uc, int _flipped_uc_18) external {
         require(msg.sender == owner, "Only owner can update C");
         C = _c;
-        uc = calculateVasilyVariant(C);
+        uc = _uc;
+        flipped_uc_18 = _flipped_uc_18;
     }
 
     function getln(int x) public pure returns (int) {
@@ -181,6 +182,8 @@ contract OrbPool is IOrbPool, ERC20{
 
         if(chunk < 0) {
             chunk = chunk * -1;
+        }else if(chunk == 0) {
+            revert("Chunk is 0, this should never happen.");
         }
 
         int box = FixedPointMathLib.powWad(chunk, uc);

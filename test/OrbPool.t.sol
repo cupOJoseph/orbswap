@@ -181,4 +181,42 @@ contract OrbTest is Test {
         vm.prank(admin);
         orbPool.emergencyAdminResetL(address(token1), 100, address(this));
     }
+
+    function test_realExample() public {
+        // Mint tokens to the test contract
+        token1.mint(admin, 1000000000000000000000000000000000000000);
+        token2.mint(admin, 1000000000000000000000000000000000000000);
+        token3.mint(admin, 1000000000000000000000000000000000000000);
+        token4.mint(admin, 1000000000000000000000000000000000000000);
+        token5.mint(admin, 1000000000000000000000000000000000000000);
+        token6.mint(admin, 1000000000000000000000000000000000000000);
+        token7.mint(admin, 1000000000000000000000000000000000000000);
+
+        // Add tokens to the pool first
+        vm.startPrank(admin);
+        token1.approve(address(orbPool), 1000000000000000000000000000000000000000);
+        token2.approve(address(orbPool), 1000000000000000000000000000000000000000);
+        token3.approve(address(orbPool), 1000000000000000000000000000000000000000);
+        token4.approve(address(orbPool), 1000000000000000000000000000000000000000);
+        token5.approve(address(orbPool), 1000000000000000000000000000000000000000);
+
+        address[] memory myTokens = new address[](5);
+        myTokens[0] = address(token1);
+        myTokens[1] = address(token2);
+        myTokens[2] = address(token3);
+        myTokens[3] = address(token4);
+        myTokens[4] = address(token5);
+
+        orbPool.initiatePool(myTokens, 1000000000000000000000000000000000000000);
+
+        address user = makeAddr("user");
+        token1.mint(user, 50000);
+        token1.approve(address(orbPool), 50000);
+
+        vm.startPrank(user);
+        orbPool.swap(address(token1), address(token2), 50000, 1);
+        console2.log("Token2 balance of user:", token2.balanceOf(user));
+
+        require(token2.balanceOf(user) > 0, "User didnt get any token back! balance is 0");
+    }
 }
